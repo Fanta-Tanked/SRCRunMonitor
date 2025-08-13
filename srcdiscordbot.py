@@ -7,6 +7,8 @@ import json
 import os
 import asyncio
 
+from keep_alive import keep_alive
+
 # --- CONFIG ---
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN") 
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
@@ -17,6 +19,8 @@ DATA_FILE = "run_messages.json"
 # --- Discord Setup ---
 intents = discord.Intents.default()
 bot = discord.Client(intents=intents)
+
+keep_alive()
 
 # --- Persistent Storage ---
 if os.path.exists(DATA_FILE):
