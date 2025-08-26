@@ -13,7 +13,7 @@ from keep_alive import keep_alive
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN") 
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 GAME_ID = "j1l9qz1g"  # Ocarina of Time game id on speedrun.com
-CHECK_INTERVAL = 60  # seconds between API checks
+CHECK_INTERVAL = 300  # seconds between API checks
 DATA_FILE = "run_messages.json"
 
 # --- Discord Setup ---
@@ -192,3 +192,4 @@ async def on_ready():
     check_runs.start()
 
 bot.run(DISCORD_TOKEN)
+
