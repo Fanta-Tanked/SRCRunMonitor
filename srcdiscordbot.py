@@ -47,7 +47,7 @@ async def fetch_json(url):
             return await resp.json()
 
 async def get_pending_runs():
-    url = f"https://www.speedrun.com/api/v1/runs?game={GAME_ID}&status=new&max=50&embed=category,platform,players"
+    url = f"https://www.speedrun.com/api/v1/runs?game={GAME_ID}&status=new&max=100&embed=category,platform,players"
     data = await fetch_json(url)
     if not data:
         return []
@@ -61,7 +61,7 @@ async def get_run_info(run_id):
 # --- Core Logic ---
 @tasks.loop(seconds=CHECK_INTERVAL)
 async def check_runs():
-    channel = bot.get_channel(CHANNEL_ID)
+    channel = bot.channel
     print(f"Hit checked runs: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     # 1. Check for new pending runs
@@ -106,8 +106,12 @@ async def check_runs():
         embed.add_field(name="Link", value=f"[View Run]({run.get('weblink', 'Unknown')})", inline=True)
         embed.set_footer(text=f"Last Changed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-        msg = await channel.send(embed=embed)
-        run_messages[run_id] = { "MessageId": msg.id, "Status": "new" }
+        try:
+            msg = await safe_send(channel, embed=embed)
+            run_messages[run_id] = {"MessageId": msg.id, "Status": "new"}
+            save_data()
+        except Exception as e:
+            print(f"Failed to send message for run {run_id}: {e}")
 
         save_data()
         
@@ -127,7 +131,7 @@ async def check_runs():
         # The run has been deleted from SRC.
         if run_data is None:            
             try:
-                msg = await channel.fetch_message(message_id)
+                msg = await channel.get_partial_message(message_id)
                 await edit_embed_title_footer(msg, f"⏱️ Speedrun Submission - Status: Deleted", f"Last Changed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "Deleted", discord.Color.dark_grey())
             except discord.NotFound:
                 pass
@@ -148,7 +152,7 @@ async def check_runs():
         
         if status == "verified" or status == "rejected":
             try:
-                msg = await channel.fetch_message(message_id)
+                msg = await channel.get_partial_message(message_id)
                 await edit_embed_title_footer(msg, f"⏱️ Speedrun Submission - Status: {statusText}", f"Last Changed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", discordColor)
             except discord.NotFound:
                 pass
@@ -183,13 +187,42 @@ async def edit_embed_title_footer(message: discord.Message, new_title: str, new_
     new_embed.set_footer(text=new_footer)
 
     # Edit the message
-    await message.edit(embed=new_embed)
+    try:
+        await safe_edit(message, new_embed)
+    except discord.errors.HTTPException as e:
+        if e.status == 429:
+            await asyncio.sleep(10)  # rate limit cooldown
+
+async def safe_send(channel: discord.TextChannel, **kwargs):
+    for attempt in range(5):
+        try:
+            return await channel.send(**kwargs)
+        except discord.errors.HTTPException as e:
+            if e.status == 429:
+                await asyncio.sleep(5)
+            else:
+                raise  # re-raise other HTTP errors            
+    raise Exception("Failed to send message after retries")
+
+async def safe_edit(message: discord.Message, **kwargs):
+    for attempt in range(5):
+        try:
+            return await message.edit(**kwargs)
+        except discord.errors.HTTPException as e:
+            if e.status == 429:
+                await asyncio.sleep(5)
+            else:
+                raise
+    raise Exception("Failed to edit message after retries")
 
 # --- Bot Events ---
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
+
+    channel = await bot.fetch_channel(CHANNEL_ID)
+    bot.channel = channel
+
     check_runs.start()
 
 bot.run(DISCORD_TOKEN)
-
