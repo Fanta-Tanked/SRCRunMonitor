@@ -61,105 +61,108 @@ async def get_run_info(run_id):
 # --- Core Logic ---
 @tasks.loop(seconds=CHECK_INTERVAL)
 async def check_runs():
-    channel = bot.channel
-    print(f"Hit checked runs: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-    # 1. Check for new pending runs
-    pending_runs = await get_pending_runs()
-
-    # 2. Filter the runs so that runs that aren't already in discord are checked.
-    filtered_runs = [run for run in pending_runs if run["id"] not in run_messages]
-
-    for run in filtered_runs:
-        run_id = run["id"]
-
-        category = run.get('category', {}).get('data', {})
-        category_name = category.get('name', 'Unknown Category')
-
-        platform = run.get('platform', {}).get('data', {}).get('name', 'Unknown Platform')
-        emulated = run.get('system', {}).get('emulated', False)
-
-        if emulated:
-            platform = platform + " (emu)"
-
-        player = run.get('players', {}).get('data', [{}])[0]
-        runner_name = player.get('names', {}).get(
-            'international', player.get('name', 'Unknown Player'))
-
-        time_sec = run.get('times', {}).get('primary_t', 0)
-        mins, sec = divmod(time_sec, 60)
-        hrs, mins = divmod(mins, 60)
-        time_str = f"{int(hrs)}:{int(mins):02d}:{sec:05.2f}" if hrs else f"{int(mins)}:{sec:05.2f}" 
-
-        color = discord.Color.blue()
-
-        embed = discord.Embed(
-            title=f"⏱️ Speedrun Submission - Status: New",
-            color=color
-        )
-
-        embed.add_field(name="Player Name", value=runner_name, inline=True)
-        embed.add_field(name="Category", value=category_name, inline=True)
-        embed.add_field(name="Time", value=time_str, inline=True)
-        embed.add_field(name="Platform", value=platform, inline=True)
-        embed.add_field(name="Submitted On", value=run.get('date', 'Unknown'), inline=True)
-        embed.add_field(name="Link", value=f"[View Run]({run.get('weblink', 'Unknown')})", inline=True)
-        embed.set_footer(text=f"Last Changed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-        try:
-            msg = await safe_send(channel, embed=embed)
-            run_messages[run_id] = {"MessageId": msg.id, "Status": "new"}
-            save_data()
-        except Exception as e:
-            print(f"Failed to send message for run {run_id}: {e}")
-
-        save_data()
-        
-        await asyncio.sleep(1)
-
-    # 2. Loop through existing runs in json to see if the status has been changed (run verified / deleted / rejected).
-    for run_id, message_details in list(run_messages.items()):
-        message_id = message_details["MessageId"]
-        storedStatus = message_details["Status"]
-
-        # If the run status is one of these don't bother updating them any further as it's just extra api calls.
-        if storedStatus == "deleted" or storedStatus == "verified" or storedStatus == "rejected":
-            continue
-
-        run_data = await get_run_info(run_id)
-
-        # The run has been deleted from SRC.
-        if run_data is None:            
+    try:
+        channel = bot.channel
+        print(f"Hit checked runs: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+        # 1. Check for new pending runs
+        pending_runs = await get_pending_runs()
+    
+        # 2. Filter the runs so that runs that aren't already in discord are checked.
+        filtered_runs = [run for run in pending_runs if run["id"] not in run_messages]
+    
+        for run in filtered_runs:
+            run_id = run["id"]
+    
+            category = run.get('category', {}).get('data', {})
+            category_name = category.get('name', 'Unknown Category')
+    
+            platform = run.get('platform', {}).get('data', {}).get('name', 'Unknown Platform')
+            emulated = run.get('system', {}).get('emulated', False)
+    
+            if emulated:
+                platform = platform + " (emu)"
+    
+            player = run.get('players', {}).get('data', [{}])[0]
+            runner_name = player.get('names', {}).get(
+                'international', player.get('name', 'Unknown Player'))
+    
+            time_sec = run.get('times', {}).get('primary_t', 0)
+            mins, sec = divmod(time_sec, 60)
+            hrs, mins = divmod(mins, 60)
+            time_str = f"{int(hrs)}:{int(mins):02d}:{sec:05.2f}" if hrs else f"{int(mins)}:{sec:05.2f}" 
+    
+            color = discord.Color.blue()
+    
+            embed = discord.Embed(
+                title=f"⏱️ Speedrun Submission - Status: New",
+                color=color
+            )
+    
+            embed.add_field(name="Player Name", value=runner_name, inline=True)
+            embed.add_field(name="Category", value=category_name, inline=True)
+            embed.add_field(name="Time", value=time_str, inline=True)
+            embed.add_field(name="Platform", value=platform, inline=True)
+            embed.add_field(name="Submitted On", value=run.get('date', 'Unknown'), inline=True)
+            embed.add_field(name="Link", value=f"[View Run]({run.get('weblink', 'Unknown')})", inline=True)
+            embed.set_footer(text=f"Last Changed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
             try:
-                msg = await channel.get_partial_message(message_id)
-                await edit_embed_title_footer(msg, f"⏱️ Speedrun Submission - Status: Deleted", f"Last Changed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "Deleted", discord.Color.dark_grey())
-            except discord.NotFound:
-                pass
-            run_messages[run_id] = { "MessageId": msg.id, "Status": "deleted" }
+                msg = await safe_send(channel, embed=embed)
+                run_messages[run_id] = {"MessageId": msg.id, "Status": "new"}
+                save_data()
+            except Exception as e:
+                print(f"Failed to send message for run {run_id}: {e}")
+    
             save_data()
-            continue
-        
-        status = run_data.get('data', {}).get('status', {}).get('status', 'Unknown')
-        
-        discordColor = discord.Color.blue()
-
-        if status == "verified":
-            discordColor = discord.Color.green()
-        elif status == "rejected":
-            discordColor = discord.Color.red()
-
-        statusText = status.capitalize()
-        
-        if status == "verified" or status == "rejected":
-            try:
-                msg = await channel.get_partial_message(message_id)
-                await edit_embed_title_footer(msg, f"⏱️ Speedrun Submission - Status: {statusText}", f"Last Changed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", discordColor)
-            except discord.NotFound:
-                pass
-            run_messages[run_id] = { "MessageId": msg.id, "Status": status }
-            save_data()
-
-        await asyncio.sleep(1)
+            
+            await asyncio.sleep(1)
+    
+        # 2. Loop through existing runs in json to see if the status has been changed (run verified / deleted / rejected).
+        for run_id, message_details in list(run_messages.items()):
+            message_id = message_details["MessageId"]
+            storedStatus = message_details["Status"]
+    
+            # If the run status is one of these don't bother updating them any further as it's just extra api calls.
+            if storedStatus == "deleted" or storedStatus == "verified" or storedStatus == "rejected":
+                continue
+    
+            run_data = await get_run_info(run_id)
+    
+            # The run has been deleted from SRC.
+            if run_data is None:            
+                try:
+                    msg = await channel.get_partial_message(message_id)
+                    await edit_embed_title_footer(msg, f"⏱️ Speedrun Submission - Status: Deleted", f"Last Changed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "Deleted", discord.Color.dark_grey())
+                except discord.NotFound:
+                    pass
+                run_messages[run_id] = { "MessageId": msg.id, "Status": "deleted" }
+                save_data()
+                continue
+            
+            status = run_data.get('data', {}).get('status', {}).get('status', 'Unknown')
+            
+            discordColor = discord.Color.blue()
+    
+            if status == "verified":
+                discordColor = discord.Color.green()
+            elif status == "rejected":
+                discordColor = discord.Color.red()
+    
+            statusText = status.capitalize()
+            
+            if status == "verified" or status == "rejected":
+                try:
+                    msg = await channel.get_partial_message(message_id)
+                    await edit_embed_title_footer(msg, f"⏱️ Speedrun Submission - Status: {statusText}", f"Last Changed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", discordColor)
+                except discord.NotFound:
+                    pass
+                run_messages[run_id] = { "MessageId": msg.id, "Status": status }
+                save_data()
+    
+            await asyncio.sleep(1)
+    except Exception as e:
+        print(f"Error in check_runs: {e}")
 
 async def edit_embed_title_footer(message: discord.Message, new_title: str, new_footer: str, new_color: discord.Color | None = None):
     if not message.embeds:
@@ -226,3 +229,4 @@ async def on_ready():
     check_runs.start()
 
 bot.run(DISCORD_TOKEN)
+
